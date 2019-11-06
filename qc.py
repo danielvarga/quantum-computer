@@ -70,29 +70,47 @@ def quantum_toffoli_gate(v, k1, k2, k3):
     return apply_quantum_gate(toffoli_tensor, v, [k1, k2, k3])
 
 
-# bits[k1] = bits[k2]
-def classical_copy_gate(v, k1, k2):
-    proj = np.sum(v, axis=k1, keepdims=True)
-
-
-# bits[k1] = bits[k1] and bits[k2]
-def classical_and_gate(v, k1, k2):
-    n = qubits(v)
+# clause is a +1 -1 0 vector on the qubits, controlled is one of the qubits.
+# for a basis, if the clause is true, then the effect operator is
+# applied to the controlled qubit. effect is a 2x2 matrix unitary.
+def quantum_controlled_gate(v, clause, controlled, effect):
+    assert qubits(v) == len(clause)
+    assert clause[controlled] == 0
+    bits = [i for i, l in enumerate(clause) if l != 0] + [controlled]
+    controlled_matrix = np.eye(2 ** len(bits))
+    controlled_tensor = controlled_matrix.reshape(tuple(2 for _ in range(2 * len(bits))))
+    slicer = [1 if literal == +1 else 0 for literal in clause if literal !=0]
+    controlled_tensor[tuple(slicer + [slice(0, 2)] + slicer + [slice(0, 2)])] = effect
+    return apply_quantum_gate(controlled_tensor, v, bits)
 
 
 # the quantum version of conditional NOT.
 # clause is a +1 -1 0 vector on the qubits, controlled is one of the qubits.
-# for a basis, if the clause is true, then the controlled qubit is flipped,
+# if the clause is true, then the controlled qubit is flipped,
 # otherwise it's unaffected.
 def quantum_controlled_pauli_x_gate(v, clause, controlled):
-    assert qubits(v) == len(clause)
-    assert clause[controlled] == 0
-    bits = [i for i, l in enumerate(clause) if l != 0] + [controlled]
-    controlled_pauli_x_matrix = np.eye(2 ** len(bits))
-    controlled_pauli_x_tensor = controlled_pauli_x_matrix.reshape(tuple(2 for _ in range(2 * len(bits))))
-    slicer = [1 if literal == +1 else 0 for literal in clause if literal !=0]
-    controlled_pauli_x_tensor[tuple(slicer + [slice(0, 2)] + slicer + [slice(0, 2)])] = np.array([[0, 1], [1, 0]])
-    return apply_quantum_gate(controlled_pauli_x_tensor, v, bits)
+    not_matrix = np.array([[0, 1], [1, 0]])
+    return quantum_controlled_gate(v, clause, controlled, not_matrix)
+
+
+# conditional phase shift by 180 degrees.
+# clause is a +1 -1 0 vector on the qubits, controlled is one of the qubits.
+# if the clause is true, then the controlled qubit is phase shifted,
+# otherwise it's unaffected.
+def quantum_controlled_pauli_z_gate(v, clause, controlled):
+    pauli_z_matrix = np.array([[1, 0], [0, -1]])
+    return quantum_controlled_gate(v, clause, controlled, pauli_z_matrix)
+
+
+# this is equivalent to picking any of the gates as controlled,
+# and using the rest as a positive literal in control.
+# see https://algassert.com/post/1706
+def quantum_symmetric_controlled_pauli_z_gate(v, gates):
+    pauli_z_matrix = np.array([[1, 0], [0, -1]])
+    controlled = gates[-1]
+    controls = gates[:-1]
+    clause = [1 if i in controls else 0 for i in range(qubits(v))]
+    return quantum_controlled_gate(v, clause, controlled, pauli_z_matrix)
 
 
 def deterministic_get(v):
@@ -192,6 +210,18 @@ def test_tensordot():
     print(np.tensordot(a, b, (1, 0)))
 
 
+def test_quantum_symmetric_controlled_pauli_z_gate():
+    n = 4
+    v = init(n, [1] * n)
+    v = full_hadamard(v, n)
+    w = quantum_symmetric_controlled_pauli_z_gate(v, range(n))
+    for _ in range(100):
+        gates = np.random.permutation(4)
+        y = quantum_symmetric_controlled_pauli_z_gate(v, gates)
+        print(y)
+        assert np.allclose(w, y)
+
+
 # the first n qubits are assumed to be the variables,
 # the second c qubits correspond to the clauses,
 # and are assumed to be initialized to all zeros.
@@ -235,8 +265,16 @@ def test_sat_circuit():
         print(bitvector, deterministic_get(v))
 
 
+def full_hadamard(v, n):
+    for i in range(n):
+        v = quantum_hadamard_gate(v, i)
+    return v
+
+
 def grover_diffusion_operator(v, n):
-    raise Exception("unimplemented")
+    v = full_hadamard(v, n)
+    v = quantum_symmetric_controlled_pauli_z_gate(v, range(n))
+    v = full_hadamard(v, n)
     return v
 
 
@@ -259,12 +297,24 @@ def grover_search(clauses, iterations):
     c = len(clauses)
     dim = n + c + 1
     v = init(dim)
-    for i in range(n):
-        v = quantum_hadamard_gate(v, i)
+    v = full_hadamard(v, n)
     for j in range(iterations):
         v = grover_iteration(v, clauses)
     v = apply_sat_circuit(v, clauses)
     return v
+
+
+def dump_amplitudes(v, sort=False):
+    dim = qubits(v)
+    collect = []
+    for bitvector in itertools.product(*[[0, 1] for _ in range(dim)]):
+        if v[tuple(bitvector)] != 0:
+            collect.append((np.absolute(v[tuple(bitvector)]) ** 2, bitvector, v[tuple(bitvector)]))
+    if sort:
+        collect.sort(reverse=True)
+    for prob, bitvector, amplitude in collect:
+        if prob > 0:
+            print("".join(map(str, bitvector)), prob, amplitude)
 
 
 def test_grover_search():
@@ -272,11 +322,12 @@ def test_grover_search():
     clauses = [[+1, 0], [0, -1]]
     iterations = 2
     v = grover_search(clauses, iterations)
-    print(v)
+    dump_amplitudes(v, sort=True)
 
 
 def test():
     test_grover_search()
+    # test_quantum_symmetric_controlled_pauli_z_gate()
     # test_sat_circuit()
     # test_quantum_controlled_pauli_x_gate()
     # test_quantum_toffoli_gate()
