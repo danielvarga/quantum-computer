@@ -100,7 +100,7 @@ def deterministic_get(v):
     assert np.sum(v != 0) == 1
     for bitvector in itertools.product(*[[0, 1] for _ in range(n)]):
         if v[tuple(bitvector)] != 0:
-            return bitvector
+            return bitvector, v[tuple(bitvector)]
 
 
 def test_classical_not_gate():
@@ -221,9 +221,9 @@ def unapply_sat_circuit(v, clauses):
 
 
 def test_sat_circuit():
-    n = 4
-    # (1, 0, 1, 0) is the only assignment satisfying it:
-    clauses = [[+1, -1, +1, 0], [0, 0, +1, -1]]
+    n = 2
+    # (1, 0) is the only assignment satisfying it:
+    clauses = [[+1, 0], [0, -1]]
     c = len(clauses)
     dim = n + c + 1
     pad = [0 for _ in range(c + 1)]
@@ -235,8 +235,49 @@ def test_sat_circuit():
         print(bitvector, deterministic_get(v))
 
 
+def grover_diffusion_operator(v, n):
+    raise Exception("unimplemented")
+    return v
+
+
+def grover_iteration(v, clauses):
+    n = len(clauses[0])
+    c = len(clauses)
+    dim = n + c + 1
+    assert dim == qubits(v)
+    pad = [0 for _ in range(c + 1)]
+
+    v = apply_sat_circuit(v, clauses)
+    v = quantum_pauli_z_gate(v, dim - 1)
+    v = unapply_sat_circuit(v, clauses)
+    v = grover_diffusion_operator(v, n)
+    return v
+
+
+def grover_search(clauses, iterations):
+    n = len(clauses[0])
+    c = len(clauses)
+    dim = n + c + 1
+    v = init(dim)
+    for i in range(n):
+        v = quantum_hadamard_gate(v, i)
+    for j in range(iterations):
+        v = grover_iteration(v, clauses)
+    v = apply_sat_circuit(v, clauses)
+    return v
+
+
+def test_grover_search():
+    # (1, 0) is the only assignment satisfying it:
+    clauses = [[+1, 0], [0, -1]]
+    iterations = 2
+    v = grover_search(clauses, iterations)
+    print(v)
+
+
 def test():
-    test_sat_circuit()
+    test_grover_search()
+    # test_sat_circuit()
     # test_quantum_controlled_pauli_x_gate()
     # test_quantum_toffoli_gate()
     # test_quantum_not_gate()
