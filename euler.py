@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, FFMpegWriter
 
 # ------------------------
 # Simulation Parameters
@@ -14,7 +15,9 @@ X1, X2 = np.meshgrid(x, x, indexing='ij')
 
 # Time evolution parameters
 dt = 0.005       # Time step (may need to be very small for stability)
-num_steps = 5000  # Number of time steps
+num_steps = 200  # Number of visualization steps
+num_ministeps = 20  # Number of visualization steps
+
 
 # Physical parameters (using ℏ = 1, m = 1)
 m = 1.0
@@ -24,7 +27,7 @@ sigma = 3.0
 # One-Particle Wavefunctions
 # ------------------------
 p0_1 = - 3.0
-p0_2 = 3.0
+p0_2 = - 3.0
 
 # Define one-particle states on the 1D grid
 phi1 = (np.exp(1j * p0_1 * x) + np.exp(-1j * p0_1 * x)) * np.exp(-x**2 / (4 * sigma**2))
@@ -32,7 +35,7 @@ phi2 = (np.exp(1j * p0_2 * x) + np.exp(-1j * p0_2 * x)) * np.exp(-x**2 / (4 * si
 
 
 phi1 = np.exp(1j * p0_1 * x) * np.exp(-(x+10)**2 / (4 * sigma**2)) + np.exp(-1j * p0_1 * x) * np.exp(-(x-20)**2 / (4 * sigma**2))
-phi2 = np.exp(1j * p0_1 * x) * np.exp(-(x+20)**2 / (4 * sigma**2)) + np.exp(-1j * p0_1 * x) * np.exp(-(x-30)**2 / (4 * sigma**2))
+phi2 = np.exp(1j * p0_2 * x) * np.exp(-(x+20)**2 / (4 * sigma**2)) + np.exp(-1j * p0_2 * x) * np.exp(-(x-30)**2 / (4 * sigma**2))
 
 # Normalize the one-particle states
 norm1 = np.sqrt(np.sum(np.abs(phi1)**2) * dx)
@@ -89,6 +92,35 @@ if do_initial_plot:
 # ------------------------
 # Time Evolution Loop
 # ------------------------
+fig, ax = plt.subplots(figsize=(6,5))
+im = ax.imshow(np.abs(psi)**2, extent=[x[0], x[-1], x[0], x[-1]], origin='lower', aspect='auto')
+ax.set_title("Joint Probability |ψ(x₁,x₂)|²")
+ax.set_xlabel("x₂")
+ax.set_ylabel("x₁")
+# plt.colorbar(im, ax=ax)
+
+# Animation update function
+def update(step):
+    global psi
+    for _ in range(num_ministeps):
+        psi = time_step(psi, dt, dx)
+    joint_prob = np.abs(psi)**2
+    im.set_data(joint_prob)
+    im.set_clim(joint_prob.min(), joint_prob.max())
+    return [im]
+
+# Animate
+anim = FuncAnimation(fig, update, frames=num_steps, blit=True)
+
+# Save as GIF (or MP4)
+# anim.save("joint_prob_animation.gif", writer=PillowWriter(fps=15))  # for GIF
+anim.save("joint_prob_animation.mp4", writer="ffmpeg", fps=60)  # for MP4 (requires ffmpeg)
+exit()
+
+
+
+
+
 plt.ion()
 fig, ax = plt.subplots(figsize=(6,5))
 im = ax.imshow(joint_prob, extent=[x[0], x[-1], x[0], x[-1]], origin='lower', aspect='auto')
